@@ -1,0 +1,468 @@
+* Issues to note
+* i. the HSGED variable takes in other ceritificates and ged. I hope this doesn't matter much
+* ii. Mexican is a few thousand less (ofc)
+* DACA qualifications won't take everything into account
+* drop 2012?
+
+
+
+clear
+clear matrix
+global final "C:/Users/pepec/Desktop/STATA FILES/ECON 289/Report/Report/"
+
+global data "$final/data"
+global code"$final/code"
+global log "$final/log"
+
+capture log close 
+log using "$log/final.log", replace
+
+use "$data/usa_00006"
+
+**# Part 1: Clean the Data #**
+* Part 1a: Clean Data *
+	* i. Drop Unused Years
+	drop if year == 2005
+	drop if year == 2006
+	drop if year == 2007	
+	drop if year == 2018
+	drop if year == 2017
+
+* Part 1b: Dummy Variables
+	keep if 15 <= age & age <= 30
+	* ii. Dummy Citizen = 1 if citizen Note: citizen = 2 doesnt gaurantee citizenship
+	tabulate citizen
+	drop if citizen == 0
+	generate dcitizen = 1
+	replace dcitizen = 0 if citizen == 3 
+	label variable dcitizen "1 if citizen"
+	* iii. Dummy High School Diploma or GED
+	generate dhsged = 0
+	replace dhsged = 1 if educd == 62
+	replace dhsged = 1 if educd == 63
+	replace dhsged = 1 if educd == 64
+	label variable dhsged "1 if obtained HS Diploma or GED+"
+	* iv. Dummy Hispanic 
+	generate dhispan = rachsing == 5
+	label variable dhispan "1 if Hispanic"
+	* v. Dummy Mexican 
+	gen dmex = hispan == 1 
+	label variable dmex "1 if Mexican"
+
+	* vi. Dummy Self Employed and More * missing dont matter much here
+	gen dselfemp = (classwkrd >= 10 & classwkrd <= 14) if classwkrd < .
+	label variable dselfemp "1 if Self-Employed"
+tabulate dselfemp
+	gen dwage 	 = (classwkrd >= 22 & classwkrd <= 28) if classwkrd < .
+	label variable dwage "1 if Work for Wages"
+	
+	gen dwagepriv= (classwkrd >= 22 & classwkrd <= 23) if classwkrd < .
+	label variable dwagepriv "1 if Work for Private"
+	
+	gen dwagepub = (classwkrd >= 24 & classwkrd <= 28) if classwkrd < .
+	label variable dwagepub "1 if Work for Government"
+	
+	gen dfamwork = (classwkrd >= 29 & classwkrd <= 29) if classwkrd < .
+	label variable dfamwork "1 if Unpaid Family Worker"
+	
+	* vii. Dummy Worker Class ******************************************
+				* Generalized ******* something is off. Doesnt match in labor force numbers
+	replace classwkrd = . if classwkrd == 0
+	* self employed
+	gen wclass1		= 1  if (classwkrd >= 10 & classwkrd <= 14) & classwkrd < .
+	* works for wages 
+	replace wclass1 = 2  if (classwkrd >= 22 & classwkrd <= 28) & classwkrd < .
+	* unpaid family worker 
+	replace wclass1 = 3  if (classwkrd >= 29 & classwkrd <= 29) & classwkrd < .
+	label variable wclass1 "Employment Type"
+				* Detailed
+	* self employed
+	gen wclass2 	= 1  if (classwkrd >= 10 & classwkrd <= 14) & classwkrd < .
+	* works for wages 
+	replace wclass2 = 2  if (classwkrd >= 22 & classwkrd <= 23) & classwkrd < .
+	* government employee
+	replace wclass2 = 3  if (classwkrd >= 25 & classwkrd <= 28) & classwkrd < .
+	* unpaid family worker 
+	replace wclass2 = 4  if (classwkrd >= 29 & classwkrd <= 29) & classwkrd < .
+	label variable wclass2 "Employment Type Specified"
+	
+	* viii. Dummy Male 
+	gen male = 0
+	replace male 	= 1 if sex == 1 
+	label variable male "1 if male"
+	* ix. Dummy Food Stamps 
+	gen dfoodstmp = 0
+	replace dfoodstmp= 1 if foodstmp == 2 
+	label variable dfoodstmp "1 if Food Stamp Recipient"
+	
+	* x. Dummy Education Detailed
+	gen dbachelor 	= educd == 101
+	gen dmaster		= educd == 114 
+	gen ddoctoral	= educd == 116
+	
+***** xi. Dummy Labor Force *******************************************************
+***so does is it ok if missing***************************************************
+	replace labforce = . if labforce == 0
+	gen dlabforce = (labforce >= 2 & labforce <=2) if labforce < . 
+	label variable dlabforce "1 if in Label Force"
+	* in labor force also refers to whether they are unemployed or employed*
+
+	* xii. Dummy Employed 
+	* in labor force
+	replace empstat = . if empstat == 0
+	gen dempstat1     = (empstat >= 1 & empstat <=1) if empstat < . 
+	gen dunempstat1   = (empstat >= 2 & empstat <=2) if empstat < . 
+	* note in labor force
+	gen dnotinlabstat1= (empstat >= 3 & empstat <=3) if empstat < . 
+	
+**********************************************************************************	
+**********************************************************************************		
+	**# Part 2a: Hispanic Eligible Variable - 1 when eligible for DACA #**
+	* Requirements: noncitizen, under 16 arrived, under 31 in 2012, hs diploma or GED, 15 to apply,lived in US for 5 years
+	* i. Create: Age at Arrival 
+	drop if age <= 14 
+	generate birthyear = year-age
+	keep if birthyear >= 1981 
+	drop if (birthyear == 1981 & birthqtr <= 2)
+	label variable birthyear "Birth Year"
+	generate arrivalage = max(-1,(yrimmig - (birthyear))) 
+	replace arrivalage = . if arrivalage == -1
+	label define arrivalagelabel 0 "less than one year" 
+	label values arrivalage arrivalagelabel
+	label variable arrivalage "Age at Arrival"
+	tabulate arrivalage yrimmig
+
+	* ii. Create: years in the US - Missing if Citizen 
+	generate yrsinusa = yrsusa1 
+	replace yrsinusa = . if yrsusa1 == 0 & bpl <= 99  
+	label variable yrsinusa "Years in the USA"
+		* this removes value 0 from us born
+	label define yrsinusalabel 0 "less than one year"
+	label values yrsinusa yrsinusalabel
+**# Part 2b. Eligible Hispanic #**
+	gen HEligible = 1
+			* Diqualifications if 
+	* citizen
+	replace HEligible = 0 if dcitizen == 1
+	* arrived 16 or older 	
+	replace HEligible = 0 if arrivalage >= 17
+	replace HEligible = 0 if arrivalage >= 16 & birthqtr >= 3
+	* lived in US for 4 years or less 
+	replace HEligible = 0 if yrsinusa <= 4
+	* Has no HS Diploma or GED (PROBLEM BC GED OR OTHER QUALIFICATIONS)
+	replace HEligible = 0 if dhsged == 0
+	* Personal Disqualifications 
+	* Not Hispanic
+	replace HEligible = 0 if dhispan == 0 
+	* Arrived in US after June 15, 2007 
+	replace HEligible = 0 if yrimmig  >= 2007
+			*Note I will be using birth quarter so that it covers Jan-June*
+	* over age 31 in June 15, 2012 (Cut off at 2012) (half year sample gone)
+	* this means if they're born before June 15, 1981 (June 30, 1981)
+	replace HEligible = 0 if birthyear <= 1980
+	replace HEligible = 0 if birthyear <= 1981 & birthqtr <= 2
+	* must be at least 15 when applying 
+	replace HEligible = 0 if age <= 14
+	tabulate HEligible
+	label variable HEligible "1 if DACA Eligible Hispanic Applicant"
+********************************************************************************
+**# Part 2c: Mexican Eligible Variable - 1 when eligible for DACA #**
+	* Requirements: noncitizen, under 16 arrived, under 31 in 2012, hs diploma or GED, 15 to apply,lived in US for 5 years	 
+	* Need: citizen age yrimmig educd hispan
+gen MEligible = 1
+			* Diqualifications if 
+	* citizen
+	replace MEligible = 0 if dcitizen == 1
+	* arrived 16 or older 	
+	replace MEligible = 0 if arrivalage >= 17
+	replace MEligible = 0 if arrivalage >= 16 & birthqtr >= 3
+	* lived in US for 4 years or less 
+	replace MEligible = 0 if yrsinusa <= 4
+	* Has no HS Diploma or GED (PROBLEM BC GED OR OTHER QUALIFICATIONS)
+	replace MEligible = 0 if dhsged == 0
+	* Personal Disqualifications 
+	* Not Mexican
+	replace MEligible = 0 if dmex == 0 
+	* Arrived in US after June 15, 2007 
+	replace MEligible = 0 if yrimmig  >= 2007
+			*Note I will be using birth quarter so that it covers Jan-June*
+	* over age 31 in June 15, 2012 (Cut off at 2012) (half year sample gone)
+	* this means if they're born before June 15, 1981 (June 30, 1981)
+	replace MEligible = 0 if birthyear <= 1980
+	replace MEligible = 0 if birthyear <= 1981 & birthqtr <= 2
+	* must be at least 15 when applying 
+	replace MEligible = 0 if age <= 14
+	label variable MEligible "1 if DACA Eligible Mexican Applicant"
+********************************************************************************
+
+**# Part 3: DACA Variable - 1 when DACA is active #**
+generate DACA = 0
+replace DACA = 1 if year >= 2013
+label variable DACA "1 if DACA is Active"
+
+drop if (arrivalage <= 14 & DACA == 1)
+
+
+generate HDACAEligible = DACA*HEligible
+
+generate MDACAEligible = DACA*MEligible
+
+
+**# Part 4a: Dummy Occupation #** *****************
+	replace occ1990 = . if occ1990 == 999
+	gen docc1     = 1 	if (occ1990 >= 0 & occ1990 <= 200) & occ1990 < .
+	replace docc1 = 2 	if (occ1990 >= 203 & occ1990 <= 389) & occ1990 < .
+	replace docc1 = 3 	if (occ1990 >= 405 & occ1990 <= 469) & occ1990 < .
+	replace docc1 = 4 	if (occ1990 >= 471 & occ1990 <= 500) & occ1990 < .
+	replace docc1 = 5 	if (occ1990 >= 501 & occ1990 <= 700) & occ1990 < .
+	replace docc1 = 6 	if (occ1990 >= 701 & occ1990 <= 889) & occ1990 < .
+	replace docc1 = 7 	if (occ1990 >= 905 & occ1990 <= 905) & occ1990 < .
+	replace docc1 = 0 	if (occ1990 >= 991 & occ1990 <= 999) & occ1990 < .
+	
+	* managerial and professional  000-200
+	gen docc1_manprof 	=  (occ1990 >= 0 & occ1990 <= 200) 
+	* technical, sales, and administration 201-392
+	gen docc1_techsadmin = (occ1990 >= 203 & occ1990 <= 392) 
+	* service  400-469
+	gen docc1_serv 		=  (occ1990 >= 400 & occ1990 <= 469) 
+	* farming, forestry, and fishing 471-500
+	gen docc1_farforfish=  (occ1990 >= 471 & occ1990 <= 500) 
+	* precision production, craft, and repairers 501-700
+	gen docc1_procrarep =  (occ1990 >= 501 & occ1990 <= 700) 
+	* operatives and laborers 701-900
+	gen docc1_opanlab 	=  (occ1990 >= 701 & occ1990 <= 889) 
+	* Military Occupations 
+	gen docc1_military 	=  (occ1990 >= 905 & occ1990 <= 905) 
+	* Unemployed 900-999 
+	gen docc1_nonocc 	=  (occ1990 >= 991 & occ1990 <= 999) 
+* new workers are persons seeking employment for the first time who had not yet secured a job
+
+**# Part 4b: Detailed Dummy Occupation
+	* Executive, Administrative, and Managerial Occupations
+	gen docc2_execut  = (occ1990 >= 3   & occ1990 <=  22) 
+	* Management Related Occupations
+	gen docc2_manag   = (occ1990 >= 23  & occ1990 <=  37) 
+	* Professional Specialty Occupations
+	gen docc2_profoc  = (occ1990 >= 43  & occ1990 <= 199) 
+	* Technicians and Related Support Occupations
+	gen docc2_tech    = (occ1990 >= 203 & occ1990 <= 235) 
+	* Sales Occupations
+	gen docc2_sales   = (occ1990 >= 243 & occ1990 <= 283) 
+	* Administrative Support Occupations, Including Clerical
+	gen docc2_adminoc = (occ1990 >= 303 & occ1990 <= 389)
+	* Private Household Occupations
+	gen docc2_houseoc = (occ1990 >= 405 & occ1990 <= 407) 
+	* Protective Service Occupations
+	gen docc2_protect = (occ1990 >= 415 & occ1990 <= 427) 
+	* Service Occupations, Except Protective and Household
+	gen docc2_othserv = (occ1990 >= 434 & occ1990 <= 469) 
+	* Farm Operators and Managers
+	gen docc2_farmman = (occ1990 >= 473 & occ1990 <= 476) 
+	* Other Agricultural and Related Occupations
+	gen docc2_othagri = (occ1990 >= 479 & occ1990 <= 498) 
+	* Mechanics and Repairers, Except Supervisors
+	gen docc2_mechrep = (occ1990 >= 503 & occ1990 <= 549) 
+	* Supervisors Construction Trades
+	gen docc2_supcnstn= (occ1990 >= 558 & occ1990 <= 558) 
+	* Construction Trades, Except Supervisors 
+	gen docc2_empcnstn= (occ1990 >= 563 & occ1990 <= 599) 
+	* Extractive Occupations
+	gen docc2_extract = (occ1990 >= 614 & occ1990 <= 617) 
+	* Precision Production Occupations
+	gen docc2_precis  = (occ1990 >= 628 & occ1990 <= 699) 
+	* Machine Operators, Assemblers, and Inspectors
+	gen docc2_machine = (occ1990 >= 703 & occ1990 <= 799) 
+	* Transportation and Material Moving Occupations
+	gen docc2_trnsprt = (occ1990 >= 803 & occ1990 <= 889) 
+	
+	*******************************************************************
+		
+**# Part 5a: Dummy Industry ************************ note that 0 is n/a
+	* note that the missing variables are n/a 163105
+	gen dind1 = 1  if (ind1990 >= 10 & ind1990 <= 32) & ind1990 < .
+	replace dind1 = 2  if (ind1990 >= 40 & ind1990 <= 50) & ind1990 < . 
+	replace dind1 = 3  if ind1990 == 60 & ind1990 < .
+	replace dind1 = 4  if (ind1990 >= 100 & ind1990 <= 392) & ind1990 < .
+	replace dind1 = 5  if (ind1990 >= 400 & ind1990 <= 472) & ind1990 < .
+	replace dind1 = 6  if (ind1990 >= 500 & ind1990 <= 571) & ind1990 < .
+	replace dind1 = 7  if (ind1990 >= 580 & ind1990 <= 691) & ind1990 < .
+	replace dind1 = 8  if (ind1990 >= 700 & ind1990 <= 712) & ind1990 < .
+	replace dind1 = 9  if (ind1990 >= 721 & ind1990 <= 760) & ind1990 < .
+	replace dind1 = 10 if (ind1990 >= 761 & ind1990 <= 791) & ind1990 < .
+	replace dind1 = 11 if (ind1990 >= 800 & ind1990 <= 810) & ind1990 < .
+	replace dind1 = 12 if (ind1990 >= 812 & ind1990 <= 893) & ind1990 < .
+	replace dind1 = 13 if (ind1990 >= 900 & ind1990 <= 932) & ind1990 < .
+	replace dind1 = 14 if (ind1990 >= 940 & ind1990 <= 960) & ind1990 < .
+	replace dind1 = 0 if (ind1990 >= 992 & ind1990 <= 992) & ind1990 < .
+
+	* Agricultural
+	gen dind1_agricult = (ind1990 >= 10 & ind1990 <= 32) 
+	* Mining
+	gen dind1_minin	   = (ind1990 >= 40 & ind1990 <= 50) 
+	* Construction 
+	gen dind1_construct = ind1990 == 60
+	* Manufacturing 
+	gen dind1_manufact = (ind1990 >= 100 & ind1990 <= 392) 
+	* Transportation, communications, and other public utilities
+	gen dind1_trancomut= (ind1990 >= 400 & ind1990 <= 472) 
+	* Wholesale trade
+	gen dind1_wholesale= (ind1990 >= 500 & ind1990 <= 571) 
+	* Retail Trade 
+	gen dind1_retail = 	 (ind1990 >= 580 & ind1990 <= 691) 
+	* Finance, insurance, and real estate
+	gen dind1_fininsre = (ind1990 >= 700 & ind1990 <= 712) 
+	* Business and repair services
+	gen dind1_busandrep= (ind1990 >= 721 & ind1990 <= 760) 
+	* Personal Services
+	gen dind1_personal =  (ind1990 >= 761 & ind1990 <= 791) 
+	* Entertainment and recreation services
+	gen dind1_entertain=  (ind1990 >= 800 & ind1990 <= 810) 
+	* Professional and related services 
+	gen dind1_profservic= (ind1990 >= 812 & ind1990 <= 893) 
+	* Public administration
+	gen dind1_pubadmin  = (ind1990 >= 900 & ind1990 <= 932) 
+	* Active Duty Military
+	gen dind1_military  = (ind1990 >= 940 & ind1990 <= 960) 
+	* hasn't worked in 5+ years 
+	gen dind1_nowork 	= (ind1990 >= 992 & ind1990 <= 992) 
+	
+	
+
+	
+**# Part X Regression Analysis #**
+**# i. Summary Statistics************************************************
+* Summary Stats Mean and Standard Deviation
+drop if year == 2012 
+tabstat male age arrivalage dhsged  dfoodstmp  dlabforce dempstat1 dunempstat1 dselfemp dwage  dfamwork dhispan HEligible dmex MEligible HDACAEligible MDACAEligible [aw=perwt], statistics (mean sd)
+
+* H&M: Summary Stats Mean & Standard Deviation by Pre/Post   DACA & Eligibility
+sort HEligible 
+by HEligible: summarize male age arrivalage dhsged  dfoodstmp  dlabforce dempstat1 dunempstat1 dselfemp dwage  dfamwork [aw=perwt]
+
+sort MEligible
+by MEligible: summarize male age arrivalage dhsged  dfoodstmp  dlabforce dempstat1 dunempstat1 dselfemp dwage [aw=perwt]
+
+summarize male age arrivalage dhsged  dfoodstmp  dlabforce dempstat1 dunempstat1 dselfemp dwage  dfamwork [aw=perwt]if HEligible == 0
+
+summarize male age arrivalage dhsged  dfoodstmp  dlabforce dempstat1 dunempstat1 dselfemp dwage  dfamwork [aw=perwt] if HEligible == 1
+
+
+* H: Summary Stats: Occupation & Industry by Pre/Post DACA & Eligibility***
+	sort HEligible DACA
+	by HEligible DACA: summarize docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish docc1_procrarep docc1_opanlab docc1_military docc1_nonocc [aw=perwt]
+
+sort HEligible DACA
+by HEligible DACA: summarize docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt]
+
+sort HEligible DACA
+by HEligible DACA: summarize dind1_agricult dind1_minin dind1_construct dind1_manufact dind1_trancomut dind1_wholesale dind1_retail dind1_fininsre dind1_busandrep dind1_personal dind1_entertain dind1_profservic dind1_pubadmin dind1_military dind1_nowork [aw=perwt]
+
+* M: Summary Stats: Occupation & Industry by Pre/Post DACA & Eligibility******
+sort MEligible 
+by MEligible: summarize docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish docc1_procrarep docc1_opanlab docc1_military docc1_nonocc [aw=perwt]
+* ^ THIS ONE 
+sort MEligible DACA
+by MEligible DACA: summarize docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt]
+
+sort MEligible DACA
+by MEligible DACA: summarize dind1_agricult dind1_minin dind1_construct dind1_manufact dind1_trancomut dind1_wholesale dind1_retail dind1_fininsre dind1_busandrep dind1_personal dind1_entertain dind1_profservic dind1_pubadmin dind1_military dind1_nowork [aw=perwt]
+
+
+**# ii. General Histograms 
+histogram dind1, by(MDACAEligible)
+histogram docc1, by(MDACAEligible)
+
+
+  
+**# ii. Regression Analysis - Hispanic
+	* Controls to consider 
+		* age * male * race * education - NOPE * in labor force - NOPE * employed - NOPE * age by eligibility - NOPE * state
+	
+* Regression OCCUPATION1*****************************************************************************************
+	* Hispanics
+foreach depvar in docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish 	docc1_procrarep docc1_opanlab docc1_military docc1_nonocc {
+	regress `depvar' DACA HEligible HDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+tabulate docc1_manprof  [aw=perwt] if (HEligible ==1)
+tabulate docc1_techsadmin  [aw=perwt] if (HEligible ==1)
+tabulate docc1_serv  [aw=perwt] if (HEligible ==1)
+tabulate docc1_farforfish  [aw=perwt] if (HEligible ==1)
+tabulate docc1_procrarep  [aw=perwt] if (HEligible ==1)
+tabulate docc1_opanlab  [aw=perwt] if (HEligible ==1)
+tabulate docc1_military  [aw=perwt] if (HEligible ==1)
+tabulate docc1_nonocc  [aw=perwt] if (HEligible ==1)
+summarize docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish 	docc1_procrarep docc1_opanlab docc1_military docc1_nonocc [aw=perwt] if (HEligible ==1 & DACA == 0)	
+summarize docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish 	docc1_procrarep docc1_opanlab docc1_military docc1_nonocc [aw=perwt] if (HEligible ==1 & DACA == 1)	
+
+	* Mexicans
+foreach depvar in docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish 	docc1_procrarep docc1_opanlab docc1_military docc1_nonocc {
+	regress `depvar' DACA MEligible MDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+tabulate MEligible
+tabulate dfoodstmp  [aw=perwt] if (MEligible ==1)
+tabulate docc1_techsadmin  [aw=perwt] if (MEligible ==1)
+tabulate docc1_serv  [aw=perwt] if (MEligible ==1)
+tabulate docc1_farforfish  [aw=perwt] if (MEligible ==1)
+tabulate docc1_procrarep  [aw=perwt] if (MEligible ==1)
+tabulate docc1_opanlab  [aw=perwt] if (MEligible ==1)
+tabulate docc1_military  [aw=perwt] if (MEligible ==1)
+tabulate docc1_nonocc  [aw=perwt] if (MEligible ==1)
+summarize docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish 	docc1_procrarep docc1_opanlab docc1_military docc1_nonocc [aw=perwt] if (MEligible ==1 & DACA == 0)	
+summarize docc1_manprof docc1_techsadmin docc1_serv docc1_farforfish 	docc1_procrarep docc1_opanlab docc1_military docc1_nonocc [aw=perwt] if (MEligible ==1 & DACA == 1)	
+	
+
+	* Regression Food Stamps
+tabulate dfoodstmp  [aw=perwt] if (HEligible ==1)
+regress dfoodstmp DACA HEligible HDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+summarize dfoodstmp [aw=perwt] if (HEligible ==1 & DACA == 0)
+summarize dfoodstmp [aw=perwt] if (HEligible ==1 & DACA == 1)
+
+tabulate dfoodstmp  [aw=perwt] if (MEligible ==1)
+regress dfoodstmp DACA MEligible MDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+summarize dfoodstmp [aw=perwt] if (MEligible ==1 & DACA == 0)	
+summarize dfoodstmp [aw=perwt] if (MEligible ==1 & DACA == 1)	
+	
+	
+	* Regression OCCUPATION2
+tabulate docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt] if (HEligible ==1)
+
+foreach depvar in docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt {
+	regress `depvar' DACA HEligible HDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+summarize docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt] if (HEligible ==1 & DACA == 0)
+summarize docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt] if (HEligible ==1 & DACA == 1)
+	
+	
+tabulate docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt  [aw=perwt] if (MEligible ==1)
+foreach depvar in docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt {
+	regress `depvar' DACA MEligible MDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+summarize depvar in docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt] if (MEligible ==1 & DACA == 0)
+summarize depvar in docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt [aw=perwt] if (MEligible ==1 & DACA == 1)
+	
+	
+	
+	* Regression INUSTRY1
+	* Hispanics
+foreach depvar in dind1_agricult dind1_minin dind1_construct dind1_manufact dind1_trancomut dind1_wholesale dind1_retail dind1_fininsre dind1_busandrep dind1_personal dind1_entertain dind1_profservic dind1_pubadmin dind1_military dind1_nowork {
+	regress `depvar' DACA HEligible HDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+summarize dind1_agricult dind1_minin dind1_construct dind1_manufact dind1_trancomut dind1_wholesale dind1_retail dind1_fininsre dind1_busandrep dind1_personal dind1_entertain dind1_profservic dind1_pubadmin dind1_military dind1_nowork [aw=perwt] if (HEligible ==1 & DACA == 0)	
+summarize dind1_agricult dind1_minin dind1_construct dind1_manufact dind1_trancomut dind1_wholesale dind1_retail dind1_fininsre dind1_busandrep dind1_personal dind1_entertain dind1_profservic dind1_pubadmin dind1_military dind1_nowork [aw=perwt] if (HEligible ==1 & DACA == 1)		
+	
+	
+**# iii. Regression Analysis - Mexican
+
+	* Regression OCCUPATION2
+foreach depvar in docc2_execut docc2_manag docc2_profoc docc2_tech docc2_sales docc2_adminoc docc2_houseoc docc2_protect docc2_othserv docc2_farmman docc2_othagri docc2_mechrep docc2_supcnstn docc2_empcnstn docc2_extract docc2_precis docc2_machine docc2_trnsprt {
+	regress `depvar' DACA HEligible HDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+
+	* Regression INUSTRY1
+foreach depvar in dind1_agricult dind1_minin dind1_construct dind1_manufact dind1_trancomut dind1_wholesale dind1_retail dind1_fininsre dind1_busandrep dind1_personal dind1_entertain dind1_profservic dind1_pubadmin dind1_military dind1_nowork {
+	regress `depvar' DACA HEligible HDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+	}
+	
+	* Regression Food Stamps
+	regress dfoodstmp DACA MEligible MDACAEligible i.age i.rachsing male i.statefip [aw=perwt], robust
+
